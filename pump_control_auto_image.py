@@ -1,4 +1,5 @@
 import os
+import math
 import time
 import sys
 from PyQt4 import QtGui, QtCore
@@ -8,23 +9,36 @@ from watchdog.observers import Observer
 from watchdog.events import PatternMatchingEventHandler
 import pdb
 
-# ToDo | Nothing ToDo at the moment. Thu Apr 12 14:16:16 CDT 2018
-# General comments:
-# 1. Check what the maximum pump rate is and see if it might be reached by this
-# program.
-# 2. Left the prime functionality intact but commented. Maybe we want to save
-# it for future use
+# ToDo | 1. If there are two pumps, make sure that the second pump has the
+# ToDo |    opposite pump direction as the first
+# ToDo |
+# ToDo | Issue: What happens if the pump hits the wall, i.e. if user puts in
+# ToDo |    1 ml syringe that is pumped to 0.5 ml and enters 0.6 ml sample and
+# ToDo |    screws the blocker to 0.5 ml?
+# ToDo |
+# ToDo | Future:
+# ToDo |
+# ToDo | General comments:
+# ToDo | 1. Check what the maximum pump rate is and see if it might be reached
+# ToDo |    by this program.
+# ToDo | 2. Left the prime functionality commented but intact. Maybe we want
+# ToDo |    to save it for future use
+# ToDo |
 
-global PAUSED
-PAUSED = False
+global PAUSED, INF
+PAUSED = True
+INF = True
 
 syringes = {'1 ml BD': '4.699',
             '3 ml BD': '8.585',
             '10 ml BD': '14.60',
-            '30ml BD': '21.59'}
+            '30 ml BD': '21.59'}
+syr_volumes = dict()
+for key in syringes.keys():
+    syr_volumes[key] = float(key.split()[0])*1000.0  # ml --> ul
 
 dt_sec = 0.5  # 0.5 seconds pump time from start to stop
-dt_hr = dt_sec/3600.0
+dt_hr = dt_sec/3600.0  # dt_sec in hours
 
 
 # Creates a class with a signal method
@@ -36,7 +50,7 @@ class FileCreateSignal(QtCore.QObject):
 # This class defines AddedFileWatcher, a modified PatternMatchingEventHandler
 # 1. Monitor files that end in file names defined by list 'patterns'
 # 2. When a file matching the pattern is created, on_created is called and
-# sends a signal.
+#    is set up to send a signal.
 class AddedFileWatcher(PatternMatchingEventHandler):
 
     def __init__(self, patterns, ignore_directories=True):
@@ -63,8 +77,7 @@ class PumpControl(QtGui.QWidget):
         self.obs = Observer()
 
         # Create new instance of filewatcher
-        self.new_file_watch = AddedFileWatcher(patterns=['*.png', '*.gif',
-                                                         '*.jpg', '*.tiff'])
+        self.new_file_watch = AddedFileWatcher(patterns=['*.png', '*.jpg'])
         # Connect to pump_vol
         self.new_file_watch.fcs.create_signal.connect(self.pump_vol)
         self.initUI()
@@ -77,18 +90,19 @@ class PumpControl(QtGui.QWidget):
         # set grid layout
         grid = QtGui.QGridLayout()
         grid.setSpacing(5)
-        
-        # setup two buttons along top
+
+        # Run Button
         self.runbtn = QtGui.QPushButton('Start Image Detection', self)
         grid.addWidget(self.runbtn, 1, 2)
         self.runbtn.setCheckable(True)
         self.runbtn.setChecked(0)
         self.runbtn.clicked.connect(self.start_detection)
 
+        # Stop button
         self.stopbtn = QtGui.QPushButton('Stop', self)
         grid.addWidget(self.stopbtn, 1, 3)
         self.stopbtn.setCheckable(True)
-        self.runbtn.setChecked(0)
+        self.stopbtn.setChecked(0)
         self.stopbtn.clicked.connect(self.stop_detection)
 
         # K Row 1.1: Add button to select user directory where images from
@@ -100,10 +114,10 @@ class PumpControl(QtGui.QWidget):
         # Test this folder later: 'D:\\test_folder_programming\\add_files'
         self.dirbutton.clicked.connect(self.set_dir)
 
-        # optional column labels
+        # Column labels
         grid.addWidget(QtGui.QLabel('Pump number'), 2, 0)
         grid.addWidget(QtGui.QLabel('Syringe'), 2, 1)
-        grid.addWidget(QtGui.QLabel('Content'), 2, 2)
+        grid.addWidget(QtGui.QLabel('Sample volume (ul)'), 2, 2)
         grid.addWidget(QtGui.QLabel('Volume/pump (ul)'), 2, 3)
         grid.addWidget(QtGui.QLabel('Current vol (ul)'), 2, 4)
         
@@ -115,10 +129,14 @@ class PumpControl(QtGui.QWidget):
         # self.primemapper = QtCore.QSignalMapper(self)  # No priming
         self.currvol = dict()
         # self.currflow = dict()
+        self.sample_vol = dict()
+        self.syr_volume = dict()
         self.volumes = dict()
         self.rates = dict()
         # self.prime_btns = dict()  # No priming
 
+        # For future: only allow one or two pumps, no more. Second pump must
+        # have same rate but with reversed direction to the first one
         for i, pump in enumerate(pumps):
             row = 3+i
             
@@ -134,8 +152,13 @@ class PumpControl(QtGui.QWidget):
             combo.activated.connect(self.mapper.map)
             grid.addWidget(combo, row, 1)
 
-            # add textbox to put syringe contents
-            grid.addWidget(QtGui.QLineEdit(), row, 2)
+            # Syringe volume
+            self.syr_volume[pump] = 0.0
+
+            # Textbox to set sample volume
+            self.sample_vol[pump] = QtGui.QLineEdit(self)
+            self.sample_vol[pump].setText('0')
+            grid.addWidget(self.sample_vol[pump], row, 2)
 
             # Textbox to add volume to pump
             self.volumes[pump] = QtGui.QLineEdit(self)
@@ -165,8 +188,20 @@ class PumpControl(QtGui.QWidget):
         # No priming
         # self.primemapper.mapped.connect(self.prime_pumps)
 
+        # Pump count status bar
+        self.pump_counter = 0
+        self.pump_count = QtGui.QLabel(self)
+        grid.addWidget(self.pump_count, 0, 2)
+        self.pump_count.setText('Pump count: {}'.format(self.pump_counter))
+
+        # Volume infused
+        self.pumped_volume = 0
+        self.pump_volume = QtGui.QLabel(self)
+        grid.addWidget(self.pump_volume, 0, 3)
+        self.pump_volume.setText('Vol INF: {} (ul)'.format(self.pumped_volume))
+
         # set up the status bar
-        self.curr_state = 'Running'
+        self.curr_state = 'Stopped'+'; {}'.format('INF' if INF else 'WDR')
         self.statusbar = QtGui.QLabel(self)
         grid.addWidget(self.statusbar, 1, 4)
         self.statusbar.setText('Status: '+self.curr_state)
@@ -180,7 +215,7 @@ class PumpControl(QtGui.QWidget):
         # self.prime_state = set()
 
         # initialize: set all flow rates to zero
-        self.run_update()
+        self.run_update(self.rates)
         self.stop_all()
         [self.update_syringe(p) for p in pumps]
         self.commandbar.setText('')
@@ -198,17 +233,73 @@ class PumpControl(QtGui.QWidget):
     # K get user directory
     def set_dir(self):
         dialog = QtGui.QFileDialog()
-        dir_path = dialog.getExistingDirectory(None, 'Select microscope '
-                                                     'image folder')
+        dir_path = dialog.getExistingDirectory(None, 'Select microscope image'
+                                                     ' folder')
         self.image_dir = dir_path
 
-    # K Start observer; How to handle start-stop-start? Observer can't be
-    # restarted, so we need to replace the observer with a new one.
+    def update_rates(self):
+        global INF, PAUSED
+
+        # Just to be sure
+        self.stop_all()
+
+        # Calculate new rates from self.volumes and send to pump(s)
+        rates = {}
+        for pump in self.rates:
+            # check if pump volumes and sample volumes are floats and > 0
+            if is_positive_float(self.volumes[pump].text().split()[0]) \
+                    and \
+                    is_positive_float(self.sample_vol[pump].text().split()[0]):
+                # Check if sample volume > syringe max volume; Must update
+                # syringe volume before checking
+                if float(self.sample_vol[pump].text().split()[0]) > \
+                        self.syr_volume[pump]:
+                    self.sample_vol[pump].setText('0.0')
+                    print('Sample volume larger than syringe volume!')
+                    self.runbtn.setChecked(0)
+                    self.stopbtn.setChecked(0)
+                    self.stop_all()
+                    PAUSED = True
+                # All good
+                else:
+                    rate_phr = float(self.volumes[pump].text().split()[0]) / \
+                               dt_hr  # Translate volume to ul/hr
+                    if INF:  # if infusing, rate_phr > 0
+                        rate_phr = math.copysign(rate_phr, 1)
+                    elif not INF:  # if withdrawing, rate_phr < 0
+                        rate_phr = math.copysign(rate_phr, -1)
+                    self.rates[pump] = str(rate_phr) + ' ul/h'
+                    rates[pump] = str(self.rates[pump]).split()[0].strip()
+
+            # else set to zero
+            else:
+                rates[pump] = '0.0'
+                self.volumes[pump].setText('0.0')
+                self.rates[pump] = '0.0 ul/h'
+                # HERE CREATE POPUP
+                print('Volumes > 0 required for both sample and pump per '
+                      'image!')
+                self.curr_state = 'Stopped' + '; {}'.format(
+                    'INF' if INF else 'WDR')
+                self.statusbar.setText('Status: ' + self.curr_state)
+                self.runbtn.setChecked(0)
+                self.stopbtn.setChecked(0)
+                self.stop_all()
+                PAUSED = True
+
+        # Send new rates to the pump; Whichever the new rates are
+        new_era.set_rates(self.ser, rates)
+
+    # K Start observer
     def start_detection(self):
-        global PAUSED
-        PAUSED = False
-        if self.image_dir == '':
+        global PAUSED, INF
+
+        if self.image_dir == '':  # Checking if dir is set
             self.set_dir()
+
+        self.update_rates()
+
+        PAUSED = False
 
         if not self.obs.is_alive():
             self.runbtn.setChecked(1)
@@ -220,7 +311,7 @@ class PumpControl(QtGui.QWidget):
             self.runbtn.setChecked(1)
             self.stopbtn.setChecked(0)
 
-    # K Stop the observer, kill it?
+    # K Stop the observer by setting PAUSED to True
     def stop_detection(self):
         global PAUSED
         PAUSED = True
@@ -228,65 +319,72 @@ class PumpControl(QtGui.QWidget):
         self.runbtn.setChecked(0)
         self.stopbtn.setChecked(1)
         self.stop_all()
+        [self.currvol[pump].setText('0 ul') for pump in self.rates]
 
     def stop_all(self):
         new_era.stop_all(self.ser)
-        self.curr_state = 'Stopped'
+        self.curr_state = 'Stopped'+'; {}'.format('INF' if INF else 'WDR')
         self.statusbar.setText('Status: '+self.curr_state)
         self.commandbar.setText('Last command: stop all pumps')
-        [self.currvol[pump].setText('0 ul') for pump in self.rates]
 
         # No priming
         # self.prime_state = set()
         # [self.prime_btns[p].setChecked(0) for p in self.rates]
 
-    def run_update(self):
-        rates = {}
-        # Get new rates from self.volumes and give to rates to send to pump(s)
-        for pump in self.rates:
+    def run_update(self, rates):
+        global PAUSED, INF
 
-            # check if the flow rates are legit numbers (floats)
-            if isfloat(self.volumes[pump].text().split()[0]):
-                rate_phr = float(self.volumes[pump].text().split()[0]) / dt_hr
-                self.rates[pump] = str(rate_phr) + ' ul/h'
-                rates[pump] = str(self.rates[pump]).split()[0].strip()
-                # pdb.set_trace()  # Check wth all rate_phr, rates[pump] are
-
-            # else set to zero
-            else:
-                rates[pump] = '0.0'
-                self.volumes[pump].setText('0.0')
-                self.rates[pump] = '0.0 ul/h'
-
-        if self.curr_state == 'Running':
+        if self.curr_state[:7] == 'Running':
             new_era.stop_all(self.ser)
 
-        elif self.curr_state == 'Stopped':
-            self.curr_state = 'Running'
+        elif self.curr_state[:7] == 'Stopped':
+
+            self.curr_state = 'Running'+'; {}'.format('INF' if INF else 'WDR')
             self.statusbar.setText('Status: ' + self.curr_state)
 
         # For both running and stop
-        new_era.set_rates(self.ser, rates)
         new_era.run_all(self.ser)
         actual_rates = new_era.get_rates(self.ser, list(rates.keys()))
         self.commandbar.setText('Last command: update '+', '.join([
             'p%i=%s' % (p, actual_rates[p]) for p in actual_rates]))
-        # Updated Volume = [rate (ul/hr)]*dt_hr
-        rate_hr = float(actual_rates[pump]) * dt_hr
+        # Update volume = rate*dt_hr
+        rate_hr = float(actual_rates[0]) * dt_hr
         [self.currvol[pump].setText(str(rate_hr) + ' ul')
          for pump in actual_rates]
 
     # K pump set volume by pumping the calculated rate for dt_sec seconds
     def pump_vol(self):
-        # print('Reached pump_vol...')
-        self.run_update()
+        global INF
+
+        # pumping
+        self.run_update(self.rates)
         time.sleep(dt_sec)
         # time.sleep(2)  # For testing;
         self.stop_all()
 
+        # Increase counter by 1
+        self.pump_counter += 1
+        self.pump_count.setText('Tot pump: {}'.format(self.pump_counter))
+
+        # Add current volume being pumped on pump 0 to total pump
+        pumped = float(self.currvol[0].text().split()[0])
+        self.pumped_volume += pumped
+        self.pump_volume.setText('Vol INF: {} (ul)'.format(self.pumped_volume))
+
+        # change directions if volume of syringe/sample is reached next
+        # pump iteration or if next iteration withdraws more than original
+        # sample volume
+        if self.pumped_volume + pumped > \
+                min(self.syr_volume[0], float(self.sample_vol[0].text())) \
+                or self.pumped_volume + pumped < 0:
+            INF = not INF  # Change direction to opposite of current
+            self.update_rates()  # Update the rates
+
     def update_syringe(self, pump):
-        if self.curr_state == 'Stopped':
+        if self.curr_state[:7] == 'Stopped':
             dia = syringes[str(self.mapper.mapping(pump).currentText())]
+            self.syr_volume[pump] = syr_volumes[str(self.mapper.mapping(
+                pump).currentText())]
             new_era.set_diameter(self.ser, pump, dia)
             dia = new_era.get_diameter(self.ser, pump)
             self.commandbar.setText('Last command: pump %i set to %s (%s '
@@ -325,6 +423,13 @@ class PumpControl(QtGui.QWidget):
         # Stop all pumps
         self.stop_all()
 
+        # With hopes that this will solve the pumping of previously run rates
+        # at startup
+        rates = {}
+        for pump in self.rates:
+            rates[pump] = '0.0'
+        new_era.set_rates(self.ser, rates)
+
         # Stop observer
         if self.obs.is_alive():
             self.obs.stop()
@@ -332,9 +437,12 @@ class PumpControl(QtGui.QWidget):
             self.obs.join()
         except RuntimeError:
             pass
+        finally:
+            # Close serial port connection
+            self.ser.close()
 
-        # Close serial port connection
-        self.ser.close()
+
+def sign(x): return math.copysign(1, x)
 
 
 def isfloat(n):
@@ -342,6 +450,16 @@ def isfloat(n):
         float(n)
         return True
     except ValueError:
+        return False
+
+
+def is_positive_float(n):
+    if isfloat(n):
+        if float(n) > 0:
+            return True
+        else:
+            return False
+    else:
         return False
 
 
@@ -354,7 +472,7 @@ def main():
 
 
 if __name__ == '__main__':
-    if sys.platform.lower() == 'linux':
+    if sys.platform.lower() == 'linux':  # Try Linux first
         serial_port = '/dev/ttyUSB0'
     else:  # We're probably on windows
         serial_port = 'COM3'
@@ -367,4 +485,5 @@ if __name__ == '__main__':
         print('Failed to connect to {} / {}'.format(serial_port, sys.platform))
         print('I am afraid I cannot start the program without a serial port '
               'to connect to.')
+        time.sleep(2)
         sys.exit(1)
