@@ -9,20 +9,24 @@ from watchdog.observers import Observer
 from watchdog.events import PatternMatchingEventHandler
 import pdb
 
-# ToDo | 1. If there are two pumps, make sure that the second pump has the
-# ToDo |    opposite pump direction as the first
+# ToDo | 1. Check how to properly wipe/flush the pump's memory so it doesn't do
+# ToDo |    any ghost pumping on startup. Use *RESET? See new_era_vp.py
+# ToDo |--> Read manual (10.4.5 and 12.1) and see if there is a way to reset
+# ToDo |    the memory so that manual usage of the pump can be done.
 # ToDo |
 # ToDo | Issue: What happens if the pump hits the wall, i.e. if user puts in
 # ToDo |    1 ml syringe that is pumped to 0.5 ml and enters 0.6 ml sample and
-# ToDo |    screws the blocker to 0.5 ml?
+# ToDo |    screws the blocker to 0.5 ml? See General Comments §2
 # ToDo |
 # ToDo | Future:
+# ToDo | 1. If there are two pumps, make sure that the second pump has the
+# ToDo |    opposite pump direction as the first
 # ToDo |
 # ToDo | General comments:
-# ToDo | 1. Check what the maximum pump rate is and see if it might be reached
-# ToDo |    by this program.
-# ToDo | 2. Left the prime functionality commented but intact. Maybe we want
+# ToDo | 1. Left the prime functionality commented but intact. Maybe we want
 # ToDo |    to save it for future use
+# ToDo | 2. Question: Does the stall detection work when Python controls the
+# ToDo |    pump? Check the full manual, search the internet
 # ToDo |
 
 global PAUSED, INF
@@ -31,11 +35,33 @@ INF = True
 
 syringes = {'1 ml BD': '4.699',
             '3 ml BD': '8.585',
-            '10 ml BD': '14.60',
-            '30 ml BD': '21.59'}
+            '5 ml BD': '11.99',
+            '10 ml BD': '14.43',
+            '20 ml BD': '19.05',
+            '30 ml BD': '21.59',
+            '60 ml BD': '26.59'}
+
 syr_volumes = dict()
 for key in syringes.keys():
     syr_volumes[key] = float(key.split()[0])*1000.0  # ml --> ul
+
+# Max rates translated from mL/hr to ul/hr (i.e. factor 10**3 increase)
+max_rates = {'1 ml BD': 191100.0,
+             '3 ml BD': 637900.0,
+             '5 ml BD': 1244000.0,
+             '10 ml BD': 1802000.0,
+             '20 ml BD': 3141000.0,
+             '30 ml BD': 4035000.0,
+             '60 ml BD': 6120000.0}
+
+# Min rates in ul/hr
+min_rates = {'1 ml BD': 1.495,
+             '3 ml BD': 4.868,
+             '5 ml BD': 9.495,
+             '10 ml BD': 13.76,
+             '20 ml BD': 23.97,
+             '30 ml BD': 30.79,
+             '60 ml BD': 46.70}
 
 dt_sec = 0.5  # 0.5 seconds pump time from start to stop
 dt_hr = dt_sec/3600.0  # dt_sec in hours
@@ -86,6 +112,9 @@ class PumpControl(QtGui.QWidget):
 
         self.ser = serial.Serial(serial_port, 19200, timeout=.1)
         print('Connected to', self.ser.name)
+
+        # See if it works
+        # new_era.reset_all(self.ser)
         
         # set grid layout
         grid = QtGui.QGridLayout()
@@ -131,6 +160,8 @@ class PumpControl(QtGui.QWidget):
         # self.currflow = dict()
         self.sample_vol = dict()
         self.syr_volume = dict()
+        self.syr_max_rate = dict()
+        self.syr_min_rate = dict()
         self.volumes = dict()
         self.rates = dict()
         # self.prime_btns = dict()  # No priming
@@ -152,8 +183,9 @@ class PumpControl(QtGui.QWidget):
             combo.activated.connect(self.mapper.map)
             grid.addWidget(combo, row, 1)
 
-            # Syringe volume
-            self.syr_volume[pump] = 0.0
+            self.syr_volume[pump] = 0.0  # Syringe volume
+            self.syr_max_rate[pump] = 0.0  # max rate in ul/hr
+            self.syr_min_rate[pump] = 0.0  # min rate in ul/hr
 
             # Textbox to set sample volume
             self.sample_vol[pump] = QtGui.QLineEdit(self)
@@ -264,6 +296,18 @@ class PumpControl(QtGui.QWidget):
                 else:
                     rate_phr = float(self.volumes[pump].text().split()[0]) / \
                                dt_hr  # Translate volume to ul/hr
+
+                    # Check if rate is below min/above max rate
+                    if rate_phr > self.syr_max_rate[pump]:
+                        rate_phr = self.syr_max_rate[pump]
+                        print('Pump volume reset to max')
+                    elif rate_phr < self.syr_min_rate[pump]:
+                        rate_phr = self.syr_min_rate[pump]
+                        print('Pump volume reset to min')
+                    self.volumes[pump].setText('{:.2f} ul'.format(
+                                               rate_phr*dt_hr))
+                    self.currvol[pump].setText('{:.2f} ul'.format(
+                                               rate_phr*dt_hr))
                     if INF:  # if infusing, rate_phr > 0
                         rate_phr = math.copysign(rate_phr, 1)
                     elif not INF:  # if withdrawing, rate_phr < 0
@@ -349,7 +393,7 @@ class PumpControl(QtGui.QWidget):
             'p%i=%s' % (p, actual_rates[p]) for p in actual_rates]))
         # Update volume = rate*dt_hr
         rate_hr = float(actual_rates[0]) * dt_hr
-        [self.currvol[pump].setText(str(rate_hr) + ' ul')
+        [self.currvol[pump].setText('{:.2f} ul'.format(rate_hr))
          for pump in actual_rates]
 
     # K pump set volume by pumping the calculated rate for dt_sec seconds
@@ -384,6 +428,10 @@ class PumpControl(QtGui.QWidget):
         if self.curr_state[:7] == 'Stopped':
             dia = syringes[str(self.mapper.mapping(pump).currentText())]
             self.syr_volume[pump] = syr_volumes[str(self.mapper.mapping(
+                pump).currentText())]
+            self.syr_max_rate[pump] = max_rates[str(self.mapper.mapping(
+                pump).currentText())]
+            self.syr_min_rate[pump] = min_rates[str(self.mapper.mapping(
                 pump).currentText())]
             new_era.set_diameter(self.ser, pump, dia)
             dia = new_era.get_diameter(self.ser, pump)
@@ -429,6 +477,7 @@ class PumpControl(QtGui.QWidget):
         for pump in self.rates:
             rates[pump] = '0.0'
         new_era.set_rates(self.ser, rates)
+        self.reset_all()
 
         # Stop observer
         if self.obs.is_alive():
@@ -440,6 +489,9 @@ class PumpControl(QtGui.QWidget):
         finally:
             # Close serial port connection
             self.ser.close()
+
+    def reset_all(self):
+        new_era.reset_all(self.ser)
 
 
 def sign(x): return math.copysign(1, x)
@@ -483,7 +535,6 @@ if __name__ == '__main__':
         main()
     except serial.serialutil.SerialException:
         print('Failed to connect to {} / {}'.format(serial_port, sys.platform))
-        print('I am afraid I cannot start the program without a serial port '
-              'to connect to.')
-        time.sleep(2)
+        print('You missed to plug in the pump!')
+        time.sleep(3)
         sys.exit(1)
