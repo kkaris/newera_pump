@@ -67,9 +67,10 @@ def set_rates(ser, rate):
     cmd = ''
     for pump in rate:
         flowrate = float(rate[pump])
-        direction = 'INF'
         if flowrate < 0:
             direction = 'WDR'
+        else:
+            direction = 'INF'
         frcmd = '%iDIR%s\x0D' % (pump, direction)
         ser.write(frcmd.encode())
         output = ser.readline().decode()
@@ -103,16 +104,22 @@ def get_rate(ser, pump):
     if '?' in output:
         print(cmd.strip()+' from get_rate not understood')
 
-    # Assuming ul/hr is standard
+    # User enters ul -> converted to ul/hr any rate might be saved in pump
+    # Convert current rate to ul/hr
+    # 1 ml = 1000 ul
+    # 1 min = (1/60) hr
     units = output[-3:-1]
-    if units == 'MH':  # ml/hr
+    if units == 'MH':  # ml/hr = 1000 ul/hr
         rate = str(float(output[4:-3])*1000)
     elif units == 'UH':  # ul/hr
         rate = output[4:-3]
-    elif units == 'MM':  # ml/min
-        rate = str(float(output[4:-3])*1000/60.0)
-    elif units == 'UM':  # ul/min
-        rate = str(float(output[4:-3])/60.0)
+    elif units == 'MM':  # ml/min = (1000*60) ul/hr
+        rate = str(float(output[4:-3])*1000*60.0)
+    elif units == 'UM':  # ul/min = 60 ul/hr
+        rate = str(float(output[4:-3])*60.0)
+    else:  # Fail; return empty string -> evaluates to False
+        sign = ''
+        rate = ''
     return sign + rate
 
 
@@ -152,7 +159,8 @@ def prime(ser, pump):
     cmd = '%iRAT10.0MH\x0D' % pump
     ser.write(cmd.encode())
     output = ser.readline().decode()
-    if '?' in output: print(cmd.strip()+' from prime not understood')
+    if '?' in output:
+        print(cmd.strip()+' from prime not understood')
 
     # run
     cmd = '%iRUN\x0D' % pump

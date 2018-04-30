@@ -1,4 +1,3 @@
-import os
 import math
 import time
 import sys
@@ -199,7 +198,7 @@ class PumpControl(QtGui.QWidget):
             # The unit for the rate is ul/hr while the user enters the volume
             # pumped per image in ul (and the pump is pumping for dt_sec sec)
             self.rates[pump] = str(
-                int(self.volumes[pump].text().split()[0]) / dt_hr) + ' ul/h'
+                float(self.volumes[pump].text().split()[0]) / dt_hr) + ' ul/h'
 
             # add label to show current volume pumped
             self.currvol[pump] = QtGui.QLabel(self)
@@ -369,7 +368,7 @@ class PumpControl(QtGui.QWidget):
         new_era.stop_all(self.ser)
         self.curr_state = 'Stopped'+'; {}'.format('INF' if INF else 'WDR')
         self.statusbar.setText('Status: '+self.curr_state)
-        self.commandbar.setText('Last command: stop all pumps')
+        self.commandbar.setText('Last command: stop all')
 
         # No priming
         # self.prime_state = set()
@@ -494,9 +493,6 @@ class PumpControl(QtGui.QWidget):
         new_era.reset_all(self.ser)
 
 
-def sign(x): return math.copysign(1, x)
-
-
 def isfloat(n):
     try:
         float(n)
@@ -507,10 +503,7 @@ def isfloat(n):
 
 def is_positive_float(n):
     if isfloat(n):
-        if float(n) > 0:
-            return True
-        else:
-            return False
+        return float(n) > 0
     else:
         return False
 
