@@ -8,7 +8,9 @@ from watchdog.observers import Observer
 from watchdog.events import PatternMatchingEventHandler
 import pdb
 
-# ToDo | 1. Check how to properly wipe/flush the pump's memory so it doesn't do
+# ToDo | 1. Add email address for sending email when done (only works if
+# ToDo |    connected to the internet of course.)
+# ToDo | 2. Check how to properly wipe/flush the pump's memory so it doesn't do
 # ToDo |    any ghost pumping on startup. Use *RESET? See new_era_vp.py
 # ToDo |--> Read manual (10.4.5 and 12.1) and see if there is a way to reset
 # ToDo |    the memory so that manual usage of the pump can be done.
@@ -251,14 +253,10 @@ class PumpControl(QtGui.QWidget):
         [self.update_syringe(p) for p in pumps]
         self.commandbar.setText('')
 
-        # keyboard shortcuts
-        QtGui.QShortcut(QtGui.QKeySequence('Space'), self, self.stop_all)
-
         # format the page
         self.setLayout(grid)
         self.setWindowTitle('Pump control')
-        # self.setWindowFlags(self.windowFlags() |
-        # QtCore.Qt.WindowStaysOnTopHint) # always on top
+
         self.show()
 
     # K get user directory
@@ -395,19 +393,19 @@ class PumpControl(QtGui.QWidget):
         [self.currvol[pump].setText('{:.2f} ul'.format(rate_hr))
          for pump in actual_rates]
 
-    # K pump set volume by pumping the calculated rate for dt_sec seconds
+    # Pump set volume by pumping the calculated rate for dt_sec seconds
     def pump_vol(self):
         global INF
 
-        # pumping
+        # pumping at rate in self.rates for dt_sec to pump
+        # volume = self.rates*dt_sec
         self.run_update(self.rates)
         time.sleep(dt_sec)
-        # time.sleep(2)  # For testing;
         self.stop_all()
 
         # Increase counter by 1
         self.pump_counter += 1
-        self.pump_count.setText('Tot pump: {}'.format(self.pump_counter))
+        self.pump_count.setText('Pump count: {}'.format(self.pump_counter))
 
         # Add current volume being pumped on pump 0 to total pump
         pumped = float(self.currvol[0].text().split()[0])
