@@ -9,7 +9,7 @@ from watchdog.events import PatternMatchingEventHandler
 import pdb
 
 # ToDo | 1. Add email address for sending email when done (only works if
-# ToDo |    connected to the internet of course.)
+# ToDo |    connected to the internet of course)
 # ToDo | 2. Check how to properly wipe/flush the pump's memory so it doesn't do
 # ToDo |    any ghost pumping on startup. Use *RESET? See new_era_vp.py
 # ToDo |--> Read manual (10.4.5 and 12.1) and see if there is a way to reset
@@ -46,6 +46,9 @@ syr_volumes = dict()
 for key in syringes.keys():
     syr_volumes[key] = float(key.split()[0])*1000.0  # ml --> ul
 
+# Rates for NE1010, see: www.syringepump.com/download/index.html
+# www.syringepump.com/download/NE-1010Brochure.pdf
+# www.syringepump.com/download/NE-1010-510-511%20Rates%20and%20Specifications.pdf
 # Max rates translated from mL/hr to ul/hr (i.e. factor 10**3 increase)
 max_rates = {'1 ml BD': 191100.0,
              '3 ml BD': 637900.0,
@@ -289,8 +292,7 @@ class PumpControl(QtGui.QWidget):
                     self.stopbtn.setChecked(0)
                     self.stop_all()
                     PAUSED = True
-                # All good
-                else:
+                else:  # All good
                     rate_phr = float(self.volumes[pump].text().split()[0]) / \
                                dt_hr  # Translate volume to ul/hr
 
@@ -305,11 +307,12 @@ class PumpControl(QtGui.QWidget):
                                                rate_phr*dt_hr))
                     self.currvol[pump].setText('{:.2f} ul'.format(
                                                rate_phr*dt_hr))
-                    if INF:  # if infusing, rate_phr > 0
-                        rate_phr = math.copysign(rate_phr, 1)
-                    elif not INF:  # if withdrawing, rate_phr < 0
-                        rate_phr = math.copysign(rate_phr, -1)
-                    self.rates[pump] = str(rate_phr) + ' ul/h'
+                    # if INF:  # if infusing, rate_phr > 0
+                    #     rate_phr = math.copysign(rate_phr, 1)
+                    # elif not INF:  # if withdrawing, rate_phr < 0
+                    #     rate_phr = math.copysign(rate_phr, -1)
+                    rate = (rate_phr if INF else -rate_phr)
+                    self.rates[pump] = str(rate) + ' ul/h'
                     rates[pump] = str(self.rates[pump]).split()[0].strip()
 
             # else set to zero
@@ -328,7 +331,7 @@ class PumpControl(QtGui.QWidget):
                 self.stop_all()
                 PAUSED = True
 
-        # Send new rates to the pump; Whichever the new rates are
+    # Send rates to pumps
         new_era.set_rates(self.ser, rates)
 
     # K Start observer
@@ -343,14 +346,11 @@ class PumpControl(QtGui.QWidget):
         PAUSED = False
 
         if not self.obs.is_alive():
-            self.runbtn.setChecked(1)
-            self.stopbtn.setChecked(0)
             self.obs.schedule(self.new_file_watch, self.image_dir)
             self.obs.start()
 
-        else:
-            self.runbtn.setChecked(1)
-            self.stopbtn.setChecked(0)
+        self.runbtn.setChecked(1)
+        self.stopbtn.setChecked(0)
 
     # K Stop the observer by setting PAUSED to True
     def stop_detection(self):
