@@ -1,13 +1,10 @@
 import serial
+import re
 import pdb
 
-# ToDo | 1. Expand the functions to more commands (see manual 10.4, page 37).
-# ToDo |    New functions:
-# ToDo |        -Use 'FIL' to fill syringe with volume
-# ToDo |        -Completely reset with * RESET
-# ToDo | 2. Some commands seem to not work well with the pump, try to find
-# ToDo |    how they should work.
-# ToDo |
+# ToDo | 1. Test new functions
+# ToDo | 2. See if the floats that come in are correct (the pump will probably
+# ToDo |    complain if not)
 
 
 def find_pumps(ser, tot_range=10):
@@ -21,12 +18,30 @@ def find_pumps(ser, tot_range=10):
     return pumps
 
 
+def error_handler(fcn, msg):  # See page 36/pp 41 in manual
+    # print('error_handler with fcn={}, msg={}'.format(fcn, msg))
+    if not msg:
+        return 'Command in {} not recognized'.format(fcn)
+    elif 'NA' in msg:
+        return 'Command not applicable. Command in {}'.format(fcn)
+    elif 'OOR' in msg:
+        return 'Command data out of range. Command in {}'.format(fcn)
+    elif 'COM' in msg:
+        return 'Invalid packet received. Command in {}'.format(fcn)
+    elif 'IGN' in msg:
+        return 'Command ignored. Command in {}'.format(fcn)
+    else:
+        return 'Command in {} not understood'.format(fcn)
+
+
+# TRY THIS ONE OUT
 def reset_all(ser):
     cmd = '*RESET\x0D'
     ser.write(cmd.encode())
     output = ser.readline().decode()
     if '?' in output:
-        print(cmd.strip()+' from reset_all not understood')
+        # print(cmd.strip()+' from reset_all not understood')
+        print(error_handler(fcn='reset_all', msg=output))
 
 
 def run_all(ser):
@@ -34,19 +49,17 @@ def run_all(ser):
     ser.write(cmd.encode())
     output = ser.readline().decode()
     if '?' in output:
-        print(cmd.strip()+' from run_all not understood')
+        # print(cmd.strip()+' from run_all not understood')
+        print(error_handler(fcn='run_all', msg=output))
 
 
 def stop_all(ser):
     cmd = '*STP\x0D'
-    # print('DEBUG stop_all cmd = {}'.format(cmd))
-    # print('DEBUG stop_all cmd.encode() = {}'.format(cmd.encode()))
     ser.write(cmd.encode())
     output = ser.readline().decode()
-    # print('DEBUG stop_all output = {}'.format(output))
-    # print('DEBUG stop_all output.encode() = {}'.format(output.encode()))
     if '?' in output:
-        print(cmd.strip()+' from stop_all not understood')
+        # print(cmd.strip()+' from stop_all not understood')
+        print(error_handler(fcn='stop_all', msg=output))
 
 
 def stop_pump(ser, pump):
@@ -54,13 +67,15 @@ def stop_pump(ser, pump):
     ser.write(cmd.encode())
     output = ser.readline().decode()
     if '?' in output:
-        print(cmd.strip()+' from stop_pump not understood')
+        # print(cmd.strip()+' from stop_pump not understood')
+        print(error_handler(fcn='stop_pump', msg=output))
 
     cmd = '%iRAT0UH\x0D' % pump
     ser.write(cmd.encode())
     output = ser.readline().decode()
     if '?' in output:
-        print(cmd.strip()+' from stop_pump not understood')
+        # print(cmd.strip()+' from stop_pump not understood')
+        print(error_handler(fcn='stop_pump', msg=output))
 
 
 def set_rates(ser, rate):
@@ -75,7 +90,8 @@ def set_rates(ser, rate):
         ser.write(frcmd.encode())
         output = ser.readline().decode()
         if '?' in output:
-            print(frcmd.strip()+' from set_rate not understood')
+            # print(frcmd.strip()+' from set_rate not understood')
+            print(error_handler(fcn='set_rates', msg=output))
         fr = abs(flowrate)
                 
         if fr < 5000:
@@ -87,36 +103,48 @@ def set_rates(ser, rate):
     ser.write(cmd.encode())
     output = ser.readline().decode()
     if '?' in output:
-        print(cmd.strip()+' from set_rates not understood')
+        # print(cmd.strip()+' from set_rates not understood')
+        print(error_handler(fcn='set_rates', msg=output))
 
 
-def get_rate(ser, pump):
+def get_direction(ser, pump):
     # get direction
     cmd = '%iDIR\x0D' % pump
     ser.write(cmd.encode())
     output = ser.readline().decode()
+    return 'INF' if 'INF' in output else 'WDR'
+
+
+def is_inf(ser, pump):
+    return True if 'INF' == get_direction(ser, pump) else False
+
+
+def get_rate(ser, pump):
     sign = ''
-    if output[4:7] == 'WDR':
+    if not is_inf(ser, pump):
         sign = '-'
     cmd = '%iRAT\x0D' % pump
     ser.write(cmd.encode())
     output = ser.readline().decode()
     if '?' in output:
-        print(cmd.strip()+' from get_rate not understood')
+        # print(cmd.strip()+' from get_rate not understood')
+        print(error_handler(fcn='get_rate', msg=output))
 
-    # User enters ul -> converted to ul/hr any rate might be saved in pump
+    pf = '(([0-9]|\.)*)(MH|UH|MM|UM)'
+    m = re.search(pf, output)
+    # User enters ul -> converted to ul/hr. Any rate might be in pump already.
     # Convert current rate to ul/hr
     # 1 ml = 1000 ul
     # 1 min = (1/60) hr
-    units = output[-3:-1]
-    if units == 'MH':  # ml/hr = 1000 ul/hr
-        rate = str(float(output[4:-3])*1000)
-    elif units == 'UH':  # ul/hr
-        rate = output[4:-3]
-    elif units == 'MM':  # ml/min = (1000*60) ul/hr
-        rate = str(float(output[4:-3])*1000*60.0)
-    elif units == 'UM':  # ul/min = 60 ul/hr
-        rate = str(float(output[4:-3])*60.0)
+    if m:
+        if 'MH' in output:  # ml/hr = 1000 ul/hr
+            rate = str(float(m.group(1))*1000)
+        elif 'UH' in output:  # ul/hr
+            rate = m.group(1)
+        elif 'MM' in output:  # ml/min = (1000*60) ul/hr
+            rate = str(float(m.group(1))*1000*60.0)
+        elif 'UM' in output:  # ul/min = 60 ul/hr
+            rate = str(float(m.group(1))*60.0)
     else:  # Fail; return empty string -> evaluates to False
         sign = ''
         rate = ''
@@ -133,7 +161,8 @@ def set_diameter(ser, pump, dia):
     ser.write(cmd.encode())
     output = ser.readline().decode()
     if '?' in output:
-        print(cmd.strip()+' from set_diameter not understood')
+        # print(cmd.strip()+' from set_diameter not understood')
+        print(error_handler(fcn='set_diameter', msg=output))
 
     
 def get_diameter(ser, pump):
@@ -141,9 +170,9 @@ def get_diameter(ser, pump):
     ser.write(cmd.encode())
     output = ser.readline().decode()
     if '?' in output:
-        print(cmd.strip()+' from get_diameter not understood')
+        # print(cmd.strip()+' from get_diameter not understood')
+        print(error_handler(fcn='get_diameter', msg=output))
     dia = output[4:-1]
-    # print('DEBUG dia output[4:-1] = {}'.format(output[4:-1]))
     return dia
 
 
@@ -153,26 +182,139 @@ def prime(ser, pump):
     ser.write(cmd.encode())
     output = ser.readline().decode()
     if '?' in output:
-        print(cmd.strip()+' from prime not understood')
+        # print(cmd.strip()+' from prime not understood')
+        print(error_handler(fcn='prime', msg=output))
 
     # set rate
     cmd = '%iRAT10.0MH\x0D' % pump
     ser.write(cmd.encode())
     output = ser.readline().decode()
     if '?' in output:
-        print(cmd.strip()+' from prime not understood')
+        # print(cmd.strip()+' from prime not understood')
+        print(error_handler(fcn='prime', msg=output))
 
     # run
     cmd = '%iRUN\x0D' % pump
     ser.write(cmd.encode())
     output = ser.readline().decode()
     if '?' in output:
-        print(cmd.strip()+' from prime not understood')
+        # print(cmd.strip()+' from prime not understood')
+        print(error_handler(fcn='prime', msg=output))
 
 
-# ser = serial.Serial('COM3',19200)
-# print ser.name       # check which port was really used
-# print ser.isOpen()
+def set_volume(ser, pump, vol):
+    # Using VOL to set volume to be dispensed
+    cmd = '%iVOL%s\x0D' % (pump, vol)
+    ser.write(cmd.encode())
+    output = ser.readline().decode()
+    if '?' in output:
+        print(error_handler(fcn='set_volume', msg=output))
+        # print(cmd.strip()+' from set_volume not understood')
+
+
+def get_volume(ser, pump):
+    # Using VOL to get volume to be dispensed
+    cmd = '%iVOL\x0D' % pump
+    ser.write(cmd.encode())
+    p = '(S)(([0-9]|\.)*)(UL|ML)'
+    output = ser.readline().decode()
+    if '?' in output:
+        print(error_handler(fcn='get_volume', msg=output))
+        # print(cmd.strip() + ' from get_volume not understood')
+    m = re.search(p, output)
+    if m:
+        return m.group(2)
+    else:
+        return ''
+
+
+# TRY THIS ONE OUT
+def set_volume_units(ser, pump, units):
+    # Using VOL to get volume to be dispensed
+    cmd = '%iVOL%s\x0D' % (pump, units)
+    ser.write(cmd.encode())
+    output = ser.readline().decode()
+    if '?' in output:
+        print(error_handler(fcn='set_volume_units', msg=output))
+        # print(cmd.strip()+' from set_volume_units not understood')
+
+
+def get_volume_units(ser, pump):
+    # Using VOL to get volume to be dispensed
+    cmd = '%iVOL\x0D' % pump
+    ser.write(cmd.encode())
+    output = ser.readline().decode()
+    m = re.search('(UL|ML)', output)
+    if '?' in output:
+        print(error_handler(fcn='get_volume_units', msg=output))
+        # print(cmd.strip()+' from get_volume_units not understood')
+    if m:
+        return m.group(0)
+    else:
+        return ''
+
+
+def get_dis(ser, pump):
+    cmd = '%iDIS\x0D' % pump  # DIS gets the volumes that have been dispensed
+    ser.write(cmd.encode())
+    output = ser.readline().decode()
+    if '?' in output:
+        print(error_handler(fcn='get_dispensed', msg=output))
+        # print(cmd.strip() + ' from get_dispensed not understood')
+    return output
+
+
+def get_dispensed(ser, pump, dis=None):
+    output = get_dis(ser, pump)
+    # Output format 'I<float>W<float><volume units>'
+    p = '(I)(([0-9]|\.)*)(W)(([0-9]|\.)*)([A-Z][A-Z])'  # Match pattern
+    m = re.search(p, output)
+    if '?' in output or not m:
+        return ''  # Evaluates to None
+    elif m:
+        if dis == 'INF':  # Querying infused volume
+            return m.group(2)
+        elif dis == 'DIS':  # Querying withdrawn volume
+            return m.group(5)
+        elif dis is None:  # Querying both
+            return m.group(2, 5)
+    else:
+        return ''  # Safeguard
+
+
+# Haven't figured out how to work with it right now
+def clear_dispensed(ser, pump):
+    cmd = '%iCLD\x0D' % pump
+    ser.write(cmd.encode())
+    output = ser.readline().decode()
+    if '?' in output:
+        print(error_handler(fcn='clear_dispensed', msg=output))
+        # print(cmd.strip() + ' from clear_dispensed not understood')
+
+
+# UNDER CONSTRUCTION
+# From the manual:
+#   "The Fill function reverses the pumping direction and withdraws or
+#    dispenses [or infuses] the volume dispensed [or infused] or withdrawn."
+# Try this --> set vol,
+#              set: dispensed volume = 0
+#             then: run (assuming proper rate is set)
+# and that will hopefully pump at given rate until volume has been dispensed
+# and then we should be able to use this to just run 'FIL' again
+# def fill_syringe(ser, pump):
+#     cmd = '%iFUNFIL\x0D' % pump
+#     ser.write(cmd.encode())
+#     output = ser.readline().decode()
+#     if '?' in output:
+#         print(error_handler(fcn='fill_syringe', msg=output))
+        # print(cmd.strip() + ' from fill_syringe not understood')
+
+
+# ser = serial.Serial('COM3',19200, timeout=.1)
+# ser = serial.Serial('/dev/ttyUSB0', 19200, timeout=.1)
+# print(ser.name)  # check which port was really used
+# print(ser.isOpen())
 # ser.close()
+# pdb.set_trace()
 # pumps = find_pumps(ser)
-# rates = get_rates(ser,pumps)
+# rates = get_rates(ser, pumps)

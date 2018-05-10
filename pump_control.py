@@ -1,8 +1,12 @@
 import sys
 import time
+import math
+import pdb
 from PyQt4 import QtGui, QtCore
 import serial
 import new_era_vp as new_era
+
+# ToDo | 1. Command each pump independently
 
 # Syringe diameters
 syringes = {'1 ml BD': '4.699',
@@ -168,16 +172,20 @@ class PumpControl(QtGui.QWidget):
         for pump in self.rates:
             # check rates: isfloat(rate) && min_rate <= rate <= max_rate
             if isfloat(self.rates[pump].text()):
-                if float(self.rates[pump].text()) <= self.syr_min_rate[pump]:
-                    rates[pump] = self.syr_min_rate[pump]
-                elif self.syr_max_rate[pump] <= float(self.rates[pump].text()):
-                    rates[pump] = self.syr_max_rate[pump]
+                absrate = abs(float(self.rates[pump].text()))
+                if absrate <= self.syr_min_rate[pump]:
+                    rates[pump] = str(math.copysign(self.syr_min_rate[pump],
+                                      float(self.rates[pump].text())))
+                elif self.syr_max_rate[pump] <= absrate:
+                    rates[pump] = str(math.copysign(self.syr_max_rate[pump],
+                                      float(self.rates[pump].text())))
                 else:
-                    rates[pump] = str(self.rates[pump].text()).strip()
+                    rates[pump] = self.rates[pump].text()
             else:
                 rates[pump] = '0'
                 self.rates[pump].setText('0')
 
+        # Check if currently running or not
         if self.curr_state == 'Running':
             new_era.stop_all(self.ser)
         elif self.curr_state == 'Stopped':
@@ -261,6 +269,6 @@ if __name__ == '__main__':
         main()
     except serial.serialutil.SerialException:
         print('Failed to connect to {} / {}'.format(serial_port, sys.platform))
-        print('You missed to plug in the pump!')
+        print('Plug in the pump!')
         time.sleep(3)
         sys.exit(1)
