@@ -1,0 +1,49 @@
+User instructions for basic pump control
+
+Description:
+The basic interface is intended as a manual control that can run one or more pumps at set rates. It is a good complement to the image detection pump program as it can be used to put pumps in any position when preparing to start the image detection or when the pump is not physically available.
+
+
+###
+Program pre-requisites:
+Pyserial
+PyQt4
+
+For directions on installation procedures, refer to document 'install_libraries'.
+
+
+###
+Starting the program:
+
+Windows:
+Right click on the file 'pump_control.py', and choose "run in command prompt".
+
+Linux:
+Open a terminal and execute the program through:
+'python3 pump_control_auto_image.py'
+or if the program is in some other path:
+'python3 ~/some/other/path/pump_control_auto_image.py'
+
+Mac: (do not know at the moment)
+
+
+###
+Running instructions:
+The program will first try to import all modules and then try to connect to the pump via the virtual com port. If any of these two checks fails, the program will not start and an error message will be sent to the terminal/command prompt running the program.
+
+Once the program starts, you will see an interface with some buttons, editable fields and indicators:
+
+Buttons:
+Run/Update - Updates the entered rates and sends a run command to the pump(s)
+Stop - The pumps are stopped
+Syringe - A pull down menu where you select the syringe model.
+
+User editable fields:
+Flow Rate - Enter the flow rate in ul/h
+Content label - A textbox to enter a small amount of text. This text box does not have any effect on anything.
+
+Indicators:
+Current flow rate - the last rate that was sent to the pump
+Status: <status> - Shows the last command.
+
+

@@ -1,0 +1,69 @@
+User instructions for auto image pumping.
+
+Description:
+The program was built to be run on a computer, parallel to an image acquisition scheduler on a microscope software. The idea is that this Python program will detect the image saved by the microscope software and pump a certain volume in response to detecing the image. The program is set up to pump a ceratin volume per image and then reverse direction of the pump and start withdrawning once the sample or maximum syringe volume has been reachced. As long as the program can detect new images it will (probably) run indefinitely.
+
+
+###
+Program pre-requisites:
+Pyserial
+PyQt4
+watchdog
+
+For directions on installation procedures, refer to document 'install_libraries'.
+
+
+###
+Starting the program:
+
+Windows:
+Right click on the file 'pump_control_auto_image.py', and choose [run in command prompt].
+
+Linux:
+Open a terminal and execute the program through:
+'python3 pump_control_auto_image.py'
+or if the program is in some other path:
+'python3 ~/some/other/path/pump_control_auto_image.py'
+
+Mac: (do not know at the moment)
+
+
+###
+Running instructions:
+The program will first try to see all modules can be imported and then tries to connect to the pump via the virtual com port. If any of these two checks fails, the program will not start and an error message will be sent to the terminal/command prompt running the program.
+
+Once the program starts, you will see an interface with some buttons, editable fields and indicators:
+
+Buttons:
+Image Directory - Opens a new window where you select the folder you want to monitor
+Start Image Detection - Starts the automatic image detection in the selected folder
+Stop - Stops the image detection. The program does technically still detect the images but it doesn't send the signal to pump. Push the 'Start Image Detection' button again to continute detection.
+Syringe - A pull down menu where you select the syringe model.
+
+User editable fields:
+Sample Volume (ul) - Enter the sample volume. Must be smaller than the syringe volume.
+Volume/pump (ul) - Enter how many ul should be pumped between each image taken by the microscope. If the volume is too small/large, the it is reset to the smallest/largest allowed volume.
+
+Indicators:
+Current vol (ul) - Indicates the volume/pump that was last sent to pump.
+Pump count - Shows the number of pumping iterations. This number should be equal to the number of images detected.
+Vol INF - Shows the amonut of sample that has been infused. This value never goes above the sample volume/max syringe volume. Once the pump revereses the pumping direction it starts to reduce the volume infused (since it is withdrawing now and not infusing).
+Status: <status> - Shows the last command.
+
+The image detection does not start until all of the following are true: 
+ - Image folder is set
+ - Volume/pump > 0
+ - Sample volume > 0
+ - Volume/pump < Sample volume
+ - Sample volume < Syringe Volume
+
+
+###
+Notes:
+The program assumes that an image is taken no faster than once every second. This is to give the pump a chance to actually pump between images as the pumping time is set to 0.5 seconds currently.
+
+
+###
+Detailed functionality:
+
+The pumping is set by calculating a pump rate from the set volume/pump and a pump time of 0.5 seconds. The calculated rate is what is actually sent to the pump and used when pumping. Every time a file is detected the program issues the run command, pauses for 0.5 seconds and then stops the pumps.

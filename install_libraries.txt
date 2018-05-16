@@ -1,0 +1,7 @@
+install libraries
+
+Any non-standard libraries are most easily installed through pip/pip3:
+https://pip.pypa.io/en/stable/installing/
+
+Installing instructions:
+https://pip.pypa.io/en/stable/user_guide/#running-pip
