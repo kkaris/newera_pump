@@ -10,7 +10,6 @@ Summary of included Python programs:
 new_era_vp.py - contains basic functions that communicate with the pump(s)
 pump_control.py - Basic GUI for running pumps at different rates
 pump_control_auto_image.py - Program for pumping a set volume per new image detected
-pump_control_auto_extrude.py - (Still under construction) program that runs a given number of extrusion cycles: infusing and withdrawing a set sample volume through syringes.
 
 
 ###
